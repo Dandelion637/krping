@@ -46,7 +46,7 @@
 #include <linux/pci.h>
 #include <linux/time.h>
 #include <linux/random.h>
-#include <linux/signal.h>
+#include <linux/sched/signal.h>
 #include <linux/proc_fs.h>
 
 #include <asm/atomic.h>
@@ -92,6 +92,7 @@ static const struct krping_option krping_opts[] = {
 	{NULL, 0, 0}
 };
 
+// SEND/RECV stat, RECV/WRITE stat
 struct krping_stats {
 	unsigned long long send_bytes;
 	unsigned long long send_msgs;
