@@ -246,6 +246,9 @@ struct krping_cb {
 	struct list_head list;
 };
 
+/** 
+ * 用来建立连接
+ */
 static int krping_cma_event_handler(struct rdma_cm_id *cma_id,
 				   struct rdma_cm_event *event)
 {
@@ -356,6 +359,10 @@ static int client_recv(struct krping_cb *cb, struct ib_wc *wc)
 	return 0;
 }
 
+/** 
+ * 处理CQ事件
+ * @param ctx context
+ */
 static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 {
 	struct krping_cb *cb = ctx;
@@ -2166,7 +2173,7 @@ out:
 	return ret;
 }
 
-/*
+/**
  * Read proc returns stats for each device.
  */
 static int krping_read_proc(struct seq_file *seq, void *v)
