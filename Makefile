@@ -13,8 +13,10 @@ install:
 	depmod -a
 
 clean:
+	make -C $(KSRC) M=`pwd` clean
 	rm -f *.o
 	rm -f *.ko
 	rm -f rdma_krping.mod.c
 	rm -f Module.symvers
 	rm -f Module.markers
+	rm -f .*.cmd
