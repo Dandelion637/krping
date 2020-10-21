@@ -59,10 +59,12 @@
 
 #define PFX "krping: "
 
-static int debug = 0;
-module_param(debug, int, 0);
-MODULE_PARM_DESC(debug, "Debug level (0=none, 1=all)");
-#define DEBUG_LOG if (debug) printk
+#define DEBUG
+#ifdef DEBUG
+#define DEBUG_LOG(...) printk(PFX __VA_ARGS__)
+#else
+#define DEBUG_LOG(...) 
+#endif
 
 MODULE_AUTHOR("Steve Wise");
 MODULE_DESCRIPTION("RDMA ping server");
@@ -361,7 +363,8 @@ static int client_recv(struct krping_cb *cb, struct ib_wc *wc)
 
 /** 
  * 处理CQ事件
- * @param ctx context
+ * @param ctx context,这里其实是一个krping_control_block结构体，这个结构体应该包含cq
+ * 所以调用的时候是krping_cq_event_handler(cb->cq, cb)
  */
 static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 {
@@ -1788,6 +1791,9 @@ static void flush_qp(struct krping_cb *cb)
 	DEBUG_LOG("qp_flushed! ccnt %u\n", ccnt);
 }
 
+/**
+ * 进行fastreg test
+ */
 static void krping_fr_test(struct krping_cb *cb)
 {
 	struct ib_send_wr inv, *bad;
@@ -1803,6 +1809,8 @@ static void krping_fr_test(struct krping_cb *cb)
 	int scnt = 0;
 	struct scatterlist sg = {0};
 
+	// ib_alloc_mr() - Allocates a memory region
+	// plen:    maximum sg entries available for registration.
 	mr = ib_alloc_mr(cb->pd, IB_MR_TYPE_MEM_REG, plen);
 	if (IS_ERR(mr)) {
 		printk(KERN_ERR PFX "ib_alloc_mr failed %ld\n", PTR_ERR(mr));
@@ -1811,6 +1819,11 @@ static void krping_fr_test(struct krping_cb *cb)
 
 	sg_dma_address(&sg) = (dma_addr_t)0xcafebabe0000ULL;
 	sg_dma_len(&sg) = size;
+
+	/* 
+	 * Map the largest prefix of a dma mapped SG list
+	 * and set it the memory region. 
+	 */
 	ret = ib_map_mr_sg(mr, &sg, 1, NULL, PAGE_SIZE);
 	if (ret <= 0) {
 		printk(KERN_ERR PFX "ib_map_mr_sge err %d\n", ret);
@@ -1980,6 +1993,7 @@ static void krping_run_client(struct krping_cb *cb)
 		krping_rlat_test_client(cb);
 	else if (cb->bw)
 		krping_bw_test_client(cb);
+	// 如果传入的指令中包含'f', 则cb->frtest==1, 进行reg test
 	else if (cb->frtest)
 		krping_fr_test(cb);
 	else
@@ -2157,7 +2171,7 @@ int krping_doit(char *cmd)
 		goto out;
 	}
 	DEBUG_LOG("created cm_id %p\n", cb->cm_id);
-
+	DEBUG_LOG("device nn 0x%p \t%s\n", cb->cm_id->device, cb->cm_id->device->name);
 	if (cb->server)
 		krping_run_server(cb);
 	else
@@ -2256,12 +2270,20 @@ static struct file_operations krping_ops = {
 
 static int __init krping_init(void)
 {
+	struct rdma_cm_id *cm_id = NULL;
+	struct ib_device *ib_dv = NULL;
 	DEBUG_LOG("krping_init\n");
 	krping_proc = proc_create("krping", 0666, NULL, &krping_ops);
 	if (krping_proc == NULL) {
 		printk(KERN_ERR PFX "cannot create /proc/krping\n");
 		return -ENOMEM;
 	}
+	cm_id = rdma_create_id(&init_net, krping_cma_event_handler, NULL, RDMA_PS_TCP, IB_QPT_RC);
+	DEBUG_LOG("cm_id: 0x%p", cm_id);
+	ib_dv = cm_id->device;
+	// 找的的设备是null 可能是没有安装驱动
+	printk("ib_dv: 0x%p", ib_dv);
+	printk("name: %s", ib_dv->name);
 	return 0;
 }
 
