@@ -2283,7 +2283,8 @@ static int __init krping_init(void)
 	ib_dv = cm_id->device;
 	// 找的的设备是null 可能是没有安装驱动
 	printk("ib_dv: 0x%p", ib_dv);
-	printk("name: %s", ib_dv->name);
+	if (ib_dv) 
+		printk("name: %s", ib_dv->name);
 	return 0;
 }
 
