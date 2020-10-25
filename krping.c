@@ -56,15 +56,13 @@
 #include <rdma/rdma_cm.h>
 
 #include "getopt.h"
+#include "debug.h"
 
+#ifndef PFX
 #define PFX "krping: "
-
-#define DEBUG
-#ifdef DEBUG
-#define DEBUG_LOG(...) printk(PFX __VA_ARGS__)
-#else
-#define DEBUG_LOG(...) 
 #endif
+
+#define DEBUG_ERR(format, ...) printk(KERN_ERR "Error [%s:%d]: " format, __func__, __LINE__, ##__VA_ARGS__)
 
 MODULE_AUTHOR("Steve Wise");
 MODULE_DESCRIPTION("RDMA ping server");
@@ -265,7 +263,7 @@ static int krping_cma_event_handler(struct rdma_cm_id *cma_id,
 		cb->state = ADDR_RESOLVED;
 		ret = rdma_resolve_route(cma_id, 2000);
 		if (ret) {
-			printk(KERN_ERR PFX "rdma_resolve_route error %d\n", 
+			DEBUG_ERR("rdma_resolve_route error %d\n", 
 			       ret);
 			wake_up_interruptible(&cb->sem);
 		}
@@ -296,26 +294,26 @@ static int krping_cma_event_handler(struct rdma_cm_id *cma_id,
 	case RDMA_CM_EVENT_CONNECT_ERROR:
 	case RDMA_CM_EVENT_UNREACHABLE:
 	case RDMA_CM_EVENT_REJECTED:
-		printk(KERN_ERR PFX "cma event %d, error %d\n", event->event,
+		DEBUG_ERR("cma event %d, error %d\n", event->event,
 		       event->status);
 		cb->state = ERROR;
 		wake_up_interruptible(&cb->sem);
 		break;
 
 	case RDMA_CM_EVENT_DISCONNECTED:
-		printk(KERN_ERR PFX "DISCONNECT EVENT...\n");
+		DEBUG_ERR("DISCONNECT EVENT...\n");
 		cb->state = ERROR;
 		wake_up_interruptible(&cb->sem);
 		break;
 
 	case RDMA_CM_EVENT_DEVICE_REMOVAL:
-		printk(KERN_ERR PFX "cma detected device removal!!!!\n");
+		DEBUG_ERR("cma detected device removal!!!!\n");
 		cb->state = ERROR;
 		wake_up_interruptible(&cb->sem);
 		break;
 
 	default:
-		printk(KERN_ERR PFX "oof bad type!\n");
+		DEBUG_ERR("oof bad type!\n");
 		wake_up_interruptible(&cb->sem);
 		break;
 	}
@@ -325,7 +323,7 @@ static int krping_cma_event_handler(struct rdma_cm_id *cma_id,
 static int server_recv(struct krping_cb *cb, struct ib_wc *wc)
 {
 	if (wc->byte_len != sizeof(cb->recv_buf)) {
-		printk(KERN_ERR PFX "Received bogus data, size %d\n", 
+		DEBUG_ERR("Received bogus data, size %d\n", 
 		       wc->byte_len);
 		return -1;
 	}
@@ -348,7 +346,7 @@ static int server_recv(struct krping_cb *cb, struct ib_wc *wc)
 static int client_recv(struct krping_cb *cb, struct ib_wc *wc)
 {
 	if (wc->byte_len != sizeof(cb->recv_buf)) {
-		printk(KERN_ERR PFX "Received bogus data, size %d\n", 
+		DEBUG_ERR("Received bogus data, size %d\n", 
 		       wc->byte_len);
 		return -1;
 	}
@@ -372,14 +370,14 @@ static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 	struct ib_wc wc;
 	struct ib_recv_wr *bad_wr;
 	int ret;
-
+	
 	BUG_ON(cb->cq != cq);
 	if (cb->state == ERROR) {
-		printk(KERN_ERR PFX "cq completion in ERROR state\n");
+		DEBUG_ERR("cq completion in ERROR state\n");
 		return;
 	}
 	if (cb->frtest) {
-		printk(KERN_ERR PFX "cq completion event in frtest!\n");
+		DEBUG_ERR("cq completion event in frtest!\n");
 		return;
 	}
 	if (!cb->wlat && !cb->rlat && !cb->bw)
@@ -390,7 +388,7 @@ static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 				DEBUG_LOG("cq flushed\n");
 				continue;
 			} else {
-				printk(KERN_ERR PFX "cq completion failed with "
+				DEBUG_ERR("cq completion failed with "
 				       "wr_id %Lx status %d opcode %d vender_err %x\n",
 					wc.wr_id, wc.status, wc.opcode, wc.vendor_err);
 				goto error;
@@ -430,13 +428,13 @@ static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 				ret = cb->server ? server_recv(cb, &wc) :
 						   client_recv(cb, &wc);
 			if (ret) {
-				printk(KERN_ERR PFX "recv wc error: %d\n", ret);
+				DEBUG_ERR("recv wc error: %d\n", ret);
 				goto error;
 			}
 
 			ret = ib_post_recv(cb->qp, &cb->rq_wr, &bad_wr);
 			if (ret) {
-				printk(KERN_ERR PFX "post recv error: %d\n", 
+				DEBUG_ERR("post recv error: %d\n", 
 				       ret);
 				goto error;
 			}
@@ -444,14 +442,14 @@ static void krping_cq_event_handler(struct ib_cq *cq, void *ctx)
 			break;
 
 		default:
-			printk(KERN_ERR PFX
+			DEBUG_ERR(
 			       "%s:%d Unexpected opcode %d, Shutting down\n",
 			       __func__, __LINE__, wc.opcode);
 			goto error;
 		}
 	}
 	if (ret) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		goto error;
 	}
 	return;
@@ -473,14 +471,14 @@ static int krping_accept(struct krping_cb *cb)
 
 	ret = rdma_accept(cb->child_cm_id, &conn_param);
 	if (ret) {
-		printk(KERN_ERR PFX "rdma_accept error: %d\n", ret);
+		DEBUG_ERR("rdma_accept error: %d\n", ret);
 		return ret;
 	}
 
 	if (!cb->wlat && !cb->rlat && !cb->bw) {
 		wait_event_interruptible(cb->sem, cb->state >= CONNECTED);
 		if (cb->state == ERROR) {
-			printk(KERN_ERR PFX "wait for CONNECTED state %d\n", 
+			DEBUG_ERR("wait for CONNECTED state %d\n", 
 				cb->state);
 			return -1;
 		}
@@ -488,23 +486,45 @@ static int krping_accept(struct krping_cb *cb)
 	return 0;
 }
 
+/**
+ * 应该是在调用ib_post_send 或者 ib_post_recv 之前填充ib_wr
+ */
 static void krping_setup_wr(struct krping_cb *cb)
 {
+	/* 
+	 * 
+	 * sgl在这里其实是一个ib_sge类型(只存储首地址,长度和lkey)
+	 */
 	cb->recv_sgl.addr = cb->recv_dma_addr;
 	cb->recv_sgl.length = sizeof cb->recv_buf;
 	cb->recv_sgl.lkey = cb->pd->local_dma_lkey;
 	cb->rq_wr.sg_list = &cb->recv_sgl;
 	cb->rq_wr.num_sge = 1;
 
+	/*
+	 * 同样的, sgl在这里也是一个ib_sge类型
+	 */
 	cb->send_sgl.addr = cb->send_dma_addr;
 	cb->send_sgl.length = sizeof cb->send_buf;
 	cb->send_sgl.lkey = cb->pd->local_dma_lkey;
 
+	/* 
+	 * sq_wr是一个ib_send_wr 类型
+	 * 为sg_list赋值, 但是这个sg_list只有一个ib_sge,即只能有一个连续的内存区域
+	 * num_sge = 1也证明了这一点
+	 */
+	
 	cb->sq_wr.opcode = IB_WR_SEND;
 	cb->sq_wr.send_flags = IB_SEND_SIGNALED;
 	cb->sq_wr.sg_list = &cb->send_sgl;
 	cb->sq_wr.num_sge = 1;
 
+	/*
+	 * 除了server 其他几个都是表示测试状态
+	 * rdma_sgl 应该是进行单边操作的 ib_sge
+	 * rdma_sq_wr 是struct ib_rdma_wr 结构体,这里的sq应该是send queue即发送队列
+	 * 
+	 */
 	if (cb->server || cb->wlat || cb->rlat || cb->bw) {
 		cb->rdma_sgl.addr = cb->rdma_dma_addr;
 		cb->rdma_sq_wr.wr.send_flags = IB_SEND_SIGNALED;
@@ -512,6 +532,12 @@ static void krping_setup_wr(struct krping_cb *cb)
 		cb->rdma_sq_wr.wr.num_sge = 1;
 	}
 
+	/**
+	 * 老外把英语字母拼错了,INVALDATE_MR -> INVALIDATE_MR
+	 * reg_mr_wr		是struct ib_reg_wr 类型,里面包含了一个ib_send_wr 以及其他注册信息
+	 * invalidate_wr 	是struct ib_send_wr类型,
+	 */ 
+	
 	/* 
 	 * A chain of 2 WRs, INVALDATE_MR + REG_MR.
 	 * both unsignaled.  The client uses them to reregister
@@ -524,15 +550,24 @@ static void krping_setup_wr(struct krping_cb *cb)
 	cb->invalidate_wr.opcode = IB_WR_LOCAL_INV;
 }
 
+/**
+ * TODO
+ * 这个函数其实不太懂这么实现的 
+ */
 static int krping_setup_buffers(struct krping_cb *cb)
 {
 	int ret;
 
 	DEBUG_LOG(PFX "krping_setup_buffers called on cb %p\n", cb);
 
+	/**
+	 * 将内核虚拟地址映射到DMA地址
+	 */ 
 	cb->recv_dma_addr = ib_dma_map_single(cb->pd->device,
 				   &cb->recv_buf, 
 				   sizeof(cb->recv_buf), DMA_BIDIRECTIONAL);
+	// TODO
+	// what is pci_unmap_addr_set?
 	pci_unmap_addr_set(cb, recv_mapping, cb->recv_dma_addr);
 	cb->send_dma_addr = ib_dma_map_single(cb->pd->device,
 					   &cb->send_buf, sizeof(cb->send_buf),
@@ -670,7 +705,7 @@ static int krping_setup_qp(struct krping_cb *cb, struct rdma_cm_id *cm_id)
 
 	cb->pd = ib_alloc_pd(cm_id->device, 0);
 	if (IS_ERR(cb->pd)) {
-		printk(KERN_ERR PFX "ib_alloc_pd failed\n");
+		DEBUG_ERR("ib_alloc_pd failed\n");
 		return PTR_ERR(cb->pd);
 	}
 	DEBUG_LOG("created pd %p\n", cb->pd);
@@ -680,7 +715,7 @@ static int krping_setup_qp(struct krping_cb *cb, struct rdma_cm_id *cm_id)
 	cb->cq = ib_create_cq(cm_id->device, krping_cq_event_handler, NULL,
 			      cb, &attr);
 	if (IS_ERR(cb->cq)) {
-		printk(KERN_ERR PFX "ib_create_cq failed\n");
+		DEBUG_ERR("ib_create_cq failed\n");
 		ret = PTR_ERR(cb->cq);
 		goto err1;
 	}
@@ -689,14 +724,14 @@ static int krping_setup_qp(struct krping_cb *cb, struct rdma_cm_id *cm_id)
 	if (!cb->wlat && !cb->rlat && !cb->bw && !cb->frtest) {
 		ret = ib_req_notify_cq(cb->cq, IB_CQ_NEXT_COMP);
 		if (ret) {
-			printk(KERN_ERR PFX "ib_create_cq failed\n");
+			DEBUG_ERR("ib_create_cq failed\n");
 			goto err2;
 		}
 	}
 
 	ret = krping_create_qp(cb);
 	if (ret) {
-		printk(KERN_ERR PFX "krping_create_qp failed: %d\n", ret);
+		DEBUG_ERR("krping_create_qp failed: %d\n", ret);
 		goto err2;
 	}
 	DEBUG_LOG("created qp %p\n", cb->qp);
@@ -754,7 +789,7 @@ static u32 krping_rdma_rkey(struct krping_cb *cb, u64 buf, int post_inv)
 	else
 		ret = ib_post_send(cb->qp, &cb->reg_mr_wr.wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		cb->state = ERROR;
 	}
 	rkey = cb->reg_mr->rkey;
@@ -790,7 +825,7 @@ static void krping_test_server(struct krping_cb *cb)
 		/* Wait for client's Start STAG/TO/Len */
 		wait_event_interruptible(cb->sem, cb->state >= RDMA_READ_ADV);
 		if (cb->state != RDMA_READ_ADV) {
-			printk(KERN_ERR PFX "wait for RDMA_READ_ADV state %d\n",
+			DEBUG_ERR("wait for RDMA_READ_ADV state %d\n",
 				cb->state);
 			break;
 		}
@@ -822,7 +857,7 @@ static void krping_test_server(struct krping_cb *cb)
 
 		ret = ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 		cb->rdma_sq_wr.wr.next = NULL;
@@ -833,7 +868,7 @@ static void krping_test_server(struct krping_cb *cb)
 		wait_event_interruptible(cb->sem, 
 					 cb->state >= RDMA_READ_COMPLETE);
 		if (cb->state != RDMA_READ_COMPLETE) {
-			printk(KERN_ERR PFX 
+			DEBUG_ERR(
 			       "wait for RDMA_READ_COMPLETE state %d\n",
 			       cb->state);
 			break;
@@ -854,7 +889,7 @@ static void krping_test_server(struct krping_cb *cb)
 		} 
 		ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 		DEBUG_LOG("server posted go ahead\n");
@@ -862,7 +897,7 @@ static void krping_test_server(struct krping_cb *cb)
 		/* Wait for client's RDMA STAG/TO/Len */
 		wait_event_interruptible(cb->sem, cb->state >= RDMA_WRITE_ADV);
 		if (cb->state != RDMA_WRITE_ADV) {
-			printk(KERN_ERR PFX 
+			DEBUG_ERR(
 			       "wait for RDMA_WRITE_ADV state %d\n",
 			       cb->state);
 			break;
@@ -886,7 +921,7 @@ static void krping_test_server(struct krping_cb *cb)
 
 		ret = ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 
@@ -894,7 +929,7 @@ static void krping_test_server(struct krping_cb *cb)
 		ret = wait_event_interruptible(cb->sem, cb->state >= 
 							 RDMA_WRITE_COMPLETE);
 		if (cb->state != RDMA_WRITE_COMPLETE) {
-			printk(KERN_ERR PFX 
+			DEBUG_ERR(
 			       "wait for RDMA_WRITE_COMPLETE state %d\n",
 			       cb->state);
 			break;
@@ -911,7 +946,7 @@ static void krping_test_server(struct krping_cb *cb)
 		} 
 		ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 		DEBUG_LOG("server posted go ahead\n");
@@ -944,7 +979,7 @@ static void rlat_test(struct krping_cb *cb)
 		cb->state = RDMA_READ_ADV;
 		ret = ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX  
+			DEBUG_ERR( 
 				"Couldn't post send: ret=%d scnt %d\n",
 				ret, scnt);
 			return;
@@ -964,7 +999,7 @@ static void rlat_test(struct krping_cb *cb)
 			} else
 				ne = ib_poll_cq(cb->cq, 1, &wc);
 			if (cb->state == ERROR) {
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"state == ERROR...bailing scnt %d\n", 
 					scnt);
 				return;
@@ -972,13 +1007,13 @@ static void rlat_test(struct krping_cb *cb)
 		} while (ne == 0);
 
 		if (ne < 0) {
-			printk(KERN_ERR PFX "poll CQ failed %d\n", ne);
+			DEBUG_ERR("poll CQ failed %d\n", ne);
 			return;
 		}
 		if (cb->poll && wc.status != IB_WC_SUCCESS) {
-			printk(KERN_ERR PFX "Completion wth error at %s:\n",
+			DEBUG_ERR("Completion wth error at %s:\n",
 				cb->server ? "server" : "client");
-			printk(KERN_ERR PFX "Failed status %d: wr_id %d\n",
+			DEBUG_ERR("Failed status %d: wr_id %d\n",
 				wc.status, (int) wc.wr_id);
 			return;
 		}
@@ -991,7 +1026,7 @@ static void rlat_test(struct krping_cb *cb)
                 stop_tv.tv_sec  -= 1;
         }
 
-	printk(KERN_ERR PFX "delta sec %lu delta usec %lu iter %d size %d\n",
+	DEBUG_ERR("delta sec %lu delta usec %lu iter %d size %d\n",
 		(unsigned long)(stop_tv.tv_sec - start_tv.tv_sec),
 		(unsigned long)(stop_tv.tv_usec - start_tv.tv_usec),
 		scnt, cb->size);
@@ -1019,28 +1054,28 @@ static void wlat_test(struct krping_cb *cb)
 
 	post_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!post_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	post_cycles_stop = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!post_cycles_stop) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	poll_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!poll_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	poll_cycles_stop = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!poll_cycles_stop) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	last_poll_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), 
 		GFP_KERNEL);
 	if (!last_poll_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	cb->rdma_sq_wr.wr.opcode = IB_WR_RDMA_WRITE;
@@ -1058,7 +1093,7 @@ static void wlat_test(struct krping_cb *cb)
 			++rcnt;
 			while (*poll_buf != (char)rcnt) {
 				if (cb->state == ERROR) {
-					printk(KERN_ERR PFX 
+					DEBUG_ERR(
 						"state = ERROR, bailing\n");
 					goto done;
 				}
@@ -1072,7 +1107,7 @@ static void wlat_test(struct krping_cb *cb)
 			if (scnt < cycle_iters)
 				post_cycles_start[scnt] = get_cycles();
 			if (ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr)) {
-				printk(KERN_ERR PFX  
+				DEBUG_ERR( 
 					"Couldn't post send: scnt=%d\n",
 					scnt);
 				goto done;
@@ -1099,17 +1134,17 @@ static void wlat_test(struct krping_cb *cb)
 			++ccnt;
 
 			if (ne < 0) {
-				printk(KERN_ERR PFX "poll CQ failed %d\n", ne);
+				DEBUG_ERR("poll CQ failed %d\n", ne);
 				goto done;
 			}
 			if (wc.status != IB_WC_SUCCESS) {
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"Completion wth error at %s:\n",
 					cb->server ? "server" : "client");
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"Failed status %d: wr_id %d\n",
 					wc.status, (int) wc.wr_id);
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"scnt=%d, rcnt=%d, ccnt=%d\n",
 					scnt, rcnt, ccnt);
 				goto done;
@@ -1128,7 +1163,7 @@ static void wlat_test(struct krping_cb *cb)
 		sum_poll += poll_cycles_stop[i] - poll_cycles_start[i];
 		sum_last_poll += poll_cycles_stop[i]-last_poll_cycles_start[i];
 	}
-	printk(KERN_ERR PFX 
+	DEBUG_ERR(
 		"delta sec %lu delta usec %lu iter %d size %d cycle_iters %d"
 		" sum_post %llu sum_poll %llu sum_last_poll %llu\n",
 		(unsigned long)(stop_tv.tv_sec - start_tv.tv_sec),
@@ -1164,28 +1199,28 @@ static void bw_test(struct krping_cb *cb)
 
 	post_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!post_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	post_cycles_stop = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!post_cycles_stop) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	poll_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!poll_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	poll_cycles_stop = kmalloc(cycle_iters * sizeof(cycles_t), GFP_KERNEL);
 	if (!poll_cycles_stop) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	last_poll_cycles_start = kmalloc(cycle_iters * sizeof(cycles_t), 
 		GFP_KERNEL);
 	if (!last_poll_cycles_start) {
-		printk(KERN_ERR PFX "%s kmalloc failed\n", __FUNCTION__);
+		DEBUG_ERR("%s kmalloc failed\n", __FUNCTION__);
 		goto done;
 	}
 	cb->rdma_sq_wr.wr.opcode = IB_WR_RDMA_WRITE;
@@ -1204,7 +1239,7 @@ static void bw_test(struct krping_cb *cb)
 			if (scnt < cycle_iters)
 				post_cycles_start[scnt] = get_cycles();
 			if (ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr)) {
-				printk(KERN_ERR PFX  
+				DEBUG_ERR( 
 					"Couldn't post send: scnt=%d\n",
 					scnt);
 				goto done;
@@ -1231,14 +1266,14 @@ static void bw_test(struct krping_cb *cb)
 			ccnt += 1;
 
 			if (ne < 0) {
-				printk(KERN_ERR PFX "poll CQ failed %d\n", ne);
+				DEBUG_ERR("poll CQ failed %d\n", ne);
 				goto done;
 			}
 			if (wc.status != IB_WC_SUCCESS) {
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"Completion wth error at %s:\n",
 					cb->server ? "server" : "client");
-				printk(KERN_ERR PFX 
+				DEBUG_ERR(
 					"Failed status %d: wr_id %d\n",
 					wc.status, (int) wc.wr_id);
 				goto done;
@@ -1257,7 +1292,7 @@ static void bw_test(struct krping_cb *cb)
 		sum_poll += poll_cycles_stop[i] - poll_cycles_start[i];
 		sum_last_poll += poll_cycles_stop[i]-last_poll_cycles_start[i];
 	}
-	printk(KERN_ERR PFX 
+	DEBUG_ERR(
 		"delta sec %lu delta usec %lu iter %d size %d cycle_iters %d"
 		" sum_post %llu sum_poll %llu sum_last_poll %llu\n",
 		(unsigned long)(stop_tv.tv_sec - start_tv.tv_sec),
@@ -1288,18 +1323,18 @@ static void krping_rlat_test_server(struct krping_cb *cb)
 	krping_format_send(cb, cb->start_dma_addr);
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completiong error %d\n", wc.status);
+		DEBUG_ERR("send completiong error %d\n", wc.status);
 		return;
 	}
 
@@ -1321,18 +1356,18 @@ static void krping_wlat_test_server(struct krping_cb *cb)
 	krping_format_send(cb, cb->start_dma_addr);
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completiong error %d\n", wc.status);
+		DEBUG_ERR("send completiong error %d\n", wc.status);
 		return;
 	}
 
@@ -1355,18 +1390,18 @@ static void krping_bw_test_server(struct krping_cb *cb)
 	krping_format_send(cb, cb->start_dma_addr);
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completiong error %d\n", wc.status);
+		DEBUG_ERR("send completiong error %d\n", wc.status);
 		return;
 	}
 
@@ -1380,7 +1415,7 @@ static int reg_supported(struct ib_device *dev)
 	u64 needed_flags = IB_DEVICE_MEM_MGT_EXTENSIONS;
 
 	if ((dev->attrs.device_cap_flags & needed_flags) != needed_flags) {
-		printk(KERN_ERR PFX 
+		DEBUG_ERR(
 			"Fastreg not supported - device_cap_flags 0x%llx\n",
 			(unsigned long long)dev->attrs.device_cap_flags);
 		return 0;
@@ -1423,10 +1458,9 @@ static int krping_bind_server(struct krping_cb *cb)
 
 
 	fill_sockaddr(&sin, cb);
-
 	ret = rdma_bind_addr(cb->cm_id, (struct sockaddr *)&sin);
 	if (ret) {
-		printk(KERN_ERR PFX "rdma_bind_addr error %d\n", ret);
+		DEBUG_ERR("rdma_bind_addr error %d\n", ret);
 		return ret;
 	}
 	DEBUG_LOG("rdma_bind_addr successful\n");
@@ -1434,20 +1468,17 @@ static int krping_bind_server(struct krping_cb *cb)
 	DEBUG_LOG("rdma_listen\n");
 	ret = rdma_listen(cb->cm_id, 3);
 	if (ret) {
-		printk(KERN_ERR PFX "rdma_listen failed: %d\n", ret);
+		DEBUG_ERR("rdma_listen failed: %d\n", ret);
 		return ret;
 	}
-
 	wait_event_interruptible(cb->sem, cb->state >= CONNECT_REQUEST);
 	if (cb->state != CONNECT_REQUEST) {
-		printk(KERN_ERR PFX "wait for CONNECT_REQUEST state %d\n",
+		DEBUG_ERR("wait for CONNECT_REQUEST state %d\n",
 			cb->state);
 		return -1;
 	}
-
 	if (!reg_supported(cb->child_cm_id->device))
 		return -EINVAL;
-
 	return 0;
 }
 
@@ -1455,35 +1486,31 @@ static void krping_run_server(struct krping_cb *cb)
 {
 	struct ib_recv_wr *bad_wr;
 	int ret;
-
 	ret = krping_bind_server(cb);
 	if (ret)
 		return;
-
 	ret = krping_setup_qp(cb, cb->child_cm_id);
 	if (ret) {
-		printk(KERN_ERR PFX "setup_qp failed: %d\n", ret);
+		DEBUG_ERR("setup_qp failed: %d\n", ret);
 		goto err0;
 	}
 
 	ret = krping_setup_buffers(cb);
 	if (ret) {
-		printk(KERN_ERR PFX "krping_setup_buffers failed: %d\n", ret);
+		DEBUG_ERR("krping_setup_buffers failed: %d\n", ret);
 		goto err1;
 	}
-
 	ret = ib_post_recv(cb->qp, &cb->rq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "ib_post_recv failed: %d\n", ret);
+		DEBUG_ERR("ib_post_recv failed: %d\n", ret);
 		goto err2;
 	}
 
 	ret = krping_accept(cb);
 	if (ret) {
-		printk(KERN_ERR PFX "connect error %d\n", ret);
+		DEBUG_ERR("connect error %d\n", ret);
 		goto err2;
 	}
-
 	if (cb->wlat)
 		krping_wlat_test_server(cb);
 	else if (cb->rlat)
@@ -1526,19 +1553,19 @@ static void krping_test_client(struct krping_cb *cb)
 
 		krping_format_send(cb, cb->start_dma_addr);
 		if (cb->state == ERROR) {
-			printk(KERN_ERR PFX "krping_format_send failed\n");
+			DEBUG_ERR("krping_format_send failed\n");
 			break;
 		}
 		ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 
 		/* Wait for server to ACK */
 		wait_event_interruptible(cb->sem, cb->state >= RDMA_WRITE_ADV);
 		if (cb->state != RDMA_WRITE_ADV) {
-			printk(KERN_ERR PFX 
+			DEBUG_ERR(
 			       "wait for RDMA_WRITE_ADV state %d\n",
 			       cb->state);
 			break;
@@ -1547,7 +1574,7 @@ static void krping_test_client(struct krping_cb *cb)
 		krping_format_send(cb, cb->rdma_dma_addr);
 		ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 		if (ret) {
-			printk(KERN_ERR PFX "post send error %d\n", ret);
+			DEBUG_ERR("post send error %d\n", ret);
 			break;
 		}
 
@@ -1555,7 +1582,7 @@ static void krping_test_client(struct krping_cb *cb)
 		wait_event_interruptible(cb->sem, 
 					 cb->state >= RDMA_WRITE_COMPLETE);
 		if (cb->state != RDMA_WRITE_COMPLETE) {
-			printk(KERN_ERR PFX 
+			DEBUG_ERR(
 			       "wait for RDMA_WRITE_COMPLETE state %d\n",
 			       cb->state);
 			break;
@@ -1563,7 +1590,7 @@ static void krping_test_client(struct krping_cb *cb)
 
 		if (cb->validate)
 			if (memcmp(cb->start_buf, cb->rdma_buf, cb->size)) {
-				printk(KERN_ERR PFX "data mismatch!\n");
+				DEBUG_ERR("data mismatch!\n");
 				break;
 			}
 
@@ -1587,23 +1614,23 @@ static void krping_rlat_test_client(struct krping_cb *cb)
 	/* Send STAG/TO/Len to client */
 	krping_format_send(cb, cb->start_dma_addr);
 	if (cb->state == ERROR) {
-		printk(KERN_ERR PFX "krping_format_send failed\n");
+		DEBUG_ERR("krping_format_send failed\n");
 		return;
 	}
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completion error %d\n", wc.status);
+		DEBUG_ERR("send completion error %d\n", wc.status);
 		return;
 	}
 
@@ -1632,20 +1659,20 @@ static void krping_rlat_test_client(struct krping_cb *cb)
 	do_gettimeofday(&start);
 	for (i=0; i < 100000; i++) {
 		if (ib_post_send(cb->qp, &cb->rdma_sq_wr.wr, &bad_wr)) {
-			printk(KERN_ERR PFX  "Couldn't post send\n");
+			DEBUG_ERR( "Couldn't post send\n");
 			return;
 		}
 		do {
 			ne = ib_poll_cq(cb->cq, 1, &wc);
 		} while (ne == 0);
 		if (ne < 0) {
-			printk(KERN_ERR PFX "poll CQ failed %d\n", ne);
+			DEBUG_ERR("poll CQ failed %d\n", ne);
 			return;
 		}
 		if (wc.status != IB_WC_SUCCESS) {
-			printk(KERN_ERR PFX "Completion wth error at %s:\n",
+			DEBUG_ERR("Completion wth error at %s:\n",
 				cb->server ? "server" : "client");
-			printk(KERN_ERR PFX "Failed status %d: wr_id %d\n",
+			DEBUG_ERR("Failed status %d: wr_id %d\n",
 				wc.status, (int) wc.wr_id);
 			return;
 		}
@@ -1659,7 +1686,7 @@ static void krping_rlat_test_client(struct krping_cb *cb)
 	sec     = stop.tv_sec - start.tv_sec;
 	usec    = stop.tv_usec - start.tv_usec;
 	elapsed = sec * 1000000 + usec;
-	printk(KERN_ERR PFX "0B-write-lat iters 100000 usec %llu\n", elapsed);
+	DEBUG_ERR("0B-write-lat iters 100000 usec %llu\n", elapsed);
 }
 #endif
 
@@ -1677,23 +1704,23 @@ static void krping_wlat_test_client(struct krping_cb *cb)
 	/* Send STAG/TO/Len to client */
 	krping_format_send(cb, cb->start_dma_addr);
 	if (cb->state == ERROR) {
-		printk(KERN_ERR PFX "krping_format_send failed\n");
+		DEBUG_ERR("krping_format_send failed\n");
 		return;
 	}
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completion error %d\n", wc.status);
+		DEBUG_ERR("send completion error %d\n", wc.status);
 		return;
 	}
 
@@ -1716,23 +1743,23 @@ static void krping_bw_test_client(struct krping_cb *cb)
 	/* Send STAG/TO/Len to client */
 	krping_format_send(cb, cb->start_dma_addr);
 	if (cb->state == ERROR) {
-		printk(KERN_ERR PFX "krping_format_send failed\n");
+		DEBUG_ERR("krping_format_send failed\n");
 		return;
 	}
 	ret = ib_post_send(cb->qp, &cb->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "post send error %d\n", ret);
+		DEBUG_ERR("post send error %d\n", ret);
 		return;
 	}
 
 	/* Spin waiting for send completion */
 	while ((ret = ib_poll_cq(cb->cq, 1, &wc) == 0));
 	if (ret < 0) {
-		printk(KERN_ERR PFX "poll error %d\n", ret);
+		DEBUG_ERR("poll error %d\n", ret);
 		return;
 	}
 	if (wc.status) {
-		printk(KERN_ERR PFX "send completion error %d\n", wc.status);
+		DEBUG_ERR("send completion error %d\n", wc.status);
 		return;
 	}
 
@@ -1763,14 +1790,14 @@ static void flush_qp(struct krping_cb *cb)
 	wr.wr_id = 0xdeadbeefcafebabe;
 	ret = ib_post_send(cb->qp, &wr, &bad);
 	if (ret) {
-		printk(KERN_ERR PFX "%s post_send failed ret %d\n", __func__, ret);
+		DEBUG_ERR("%s post_send failed ret %d\n", __func__, ret);
 		return;
 	}
 
 	recv_wr.wr_id = 0xcafebabedeadbeef;
 	ret = ib_post_recv(cb->qp, &recv_wr, &recv_bad);
 	if (ret) {
-		printk(KERN_ERR PFX "%s post_recv failed ret %d\n", __func__, ret);
+		DEBUG_ERR("%s post_recv failed ret %d\n", __func__, ret);
 		return;
 	}
 
@@ -1778,7 +1805,7 @@ static void flush_qp(struct krping_cb *cb)
 	do {
 		ret = ib_poll_cq(cb->cq, 1, &wc);
 		if (ret < 0) {
-			printk(KERN_ERR PFX "ib_poll_cq failed %d\n", ret);
+			DEBUG_ERR("ib_poll_cq failed %d\n", ret);
 			return;
 		}
 		if (ret == 0)
@@ -1813,7 +1840,7 @@ static void krping_fr_test(struct krping_cb *cb)
 	// plen:    maximum sg entries available for registration.
 	mr = ib_alloc_mr(cb->pd, IB_MR_TYPE_MEM_REG, plen);
 	if (IS_ERR(mr)) {
-		printk(KERN_ERR PFX "ib_alloc_mr failed %ld\n", PTR_ERR(mr));
+		DEBUG_ERR("ib_alloc_mr failed %ld\n", PTR_ERR(mr));
 		return;
 	}
 
@@ -1826,7 +1853,7 @@ static void krping_fr_test(struct krping_cb *cb)
 	 */
 	ret = ib_map_mr_sg(mr, &sg, 1, NULL, PAGE_SIZE);
 	if (ret <= 0) {
-		printk(KERN_ERR PFX "ib_map_mr_sge err %d\n", ret);
+		DEBUG_ERR("ib_map_mr_sge err %d\n", ret);
 		goto err2;
 	}
 
@@ -1844,7 +1871,7 @@ static void krping_fr_test(struct krping_cb *cb)
 	start = get_seconds();
 	while (!cb->count || count <= cb->count) {
 		if (signal_pending(current)) {
-			printk(KERN_ERR PFX "signal!\n");
+			DEBUG_ERR("signal!\n");
 			break;
 		}
 		if ((get_seconds() - start) >= 9) {
@@ -1865,12 +1892,12 @@ static void krping_fr_test(struct krping_cb *cb)
 			sg_dma_len(&sg) = size;
 			ret = ib_map_mr_sg(mr, &sg, 1, NULL, PAGE_SIZE);
 			if (ret <= 0) {
-				printk(KERN_ERR PFX "ib_map_mr_sge err %d\n", ret);
+				DEBUG_ERR("ib_map_mr_sge err %d\n", ret);
 				goto err2;
 			}
 			ret = ib_post_send(cb->qp, &fr.wr, &bad);
 			if (ret) {
-				printk(KERN_ERR PFX "ib_post_send failed %d\n", ret);
+				DEBUG_ERR("ib_post_send failed %d\n", ret);
 				goto err2;	
 			}
 			scnt++;
@@ -1878,12 +1905,12 @@ static void krping_fr_test(struct krping_cb *cb)
 
 		ret = ib_poll_cq(cb->cq, 1, &wc);
 		if (ret < 0) {
-			printk(KERN_ERR PFX "ib_poll_cq failed %d\n", ret);
+			DEBUG_ERR("ib_poll_cq failed %d\n", ret);
 			goto err2;	
 		}
 		if (ret == 1) {
 			if (wc.status) {
-				printk(KERN_ERR PFX "completion error %u\n", wc.status);
+				DEBUG_ERR("completion error %u\n", wc.status);
 				goto err2;
 			}
 			count++;
@@ -1908,13 +1935,13 @@ static int krping_connect_client(struct krping_cb *cb)
 
 	ret = rdma_connect(cb->cm_id, &conn_param);
 	if (ret) {
-		printk(KERN_ERR PFX "rdma_connect error %d\n", ret);
+		DEBUG_ERR("rdma_connect error %d\n", ret);
 		return ret;
 	}
 
 	wait_event_interruptible(cb->sem, cb->state >= CONNECTED);
 	if (cb->state == ERROR) {
-		printk(KERN_ERR PFX "wait for CONNECTED state %d\n", cb->state);
+		DEBUG_ERR("wait for CONNECTED state %d\n", cb->state);
 		return -1;
 	}
 
@@ -1931,13 +1958,13 @@ static int krping_bind_client(struct krping_cb *cb)
 
 	ret = rdma_resolve_addr(cb->cm_id, NULL, (struct sockaddr *)&sin, 2000);
 	if (ret) {
-		printk(KERN_ERR PFX "rdma_resolve_addr error %d\n", ret);
+		DEBUG_ERR("rdma_resolve_addr error %d\n", ret);
 		return ret;
 	}
 
 	wait_event_interruptible(cb->sem, cb->state >= ROUTE_RESOLVED);
 	if (cb->state != ROUTE_RESOLVED) {
-		printk(KERN_ERR PFX 
+		DEBUG_ERR(
 		       "addr/route resolution did not resolve: state %d\n",
 		       cb->state);
 		return -EINTR;
@@ -1965,25 +1992,25 @@ static void krping_run_client(struct krping_cb *cb)
 
 	ret = krping_setup_qp(cb, cb->cm_id);
 	if (ret) {
-		printk(KERN_ERR PFX "setup_qp failed: %d\n", ret);
+		DEBUG_ERR("setup_qp failed: %d\n", ret);
 		return;
 	}
 
 	ret = krping_setup_buffers(cb);
 	if (ret) {
-		printk(KERN_ERR PFX "krping_setup_buffers failed: %d\n", ret);
+		DEBUG_ERR("krping_setup_buffers failed: %d\n", ret);
 		goto err1;
 	}
 
 	ret = ib_post_recv(cb->qp, &cb->rq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR PFX "ib_post_recv failed: %d\n", ret);
+		DEBUG_ERR("ib_post_recv failed: %d\n", ret);
 		goto err2;
 	}
 
 	ret = krping_connect_client(cb);
 	if (ret) {
-		printk(KERN_ERR PFX "connect error %d\n", ret);
+		DEBUG_ERR("connect error %d\n", ret);
 		goto err2;
 	}
 
@@ -2072,7 +2099,7 @@ int krping_doit(char *cmd)
 			cb->size = optint;
 			if ((cb->size < 1) ||
 			    (cb->size > RPING_BUFSIZE)) {
-				printk(KERN_ERR PFX "Invalid size %d "
+				DEBUG_ERR("Invalid size %d "
 				       "(valid range is 1 to %d)\n",
 				       cb->size, RPING_BUFSIZE);
 				ret = EINVAL;
@@ -2082,7 +2109,7 @@ int krping_doit(char *cmd)
 		case 'C':
 			cb->count = optint;
 			if (cb->count < 0) {
-				printk(KERN_ERR PFX "Invalid count %d\n",
+				DEBUG_ERR("Invalid count %d\n",
 					cb->count);
 				ret = EINVAL;
 			} else
@@ -2132,7 +2159,7 @@ int krping_doit(char *cmd)
 			DEBUG_LOG("fast-reg test!\n");
 			break;
 		default:
-			printk(KERN_ERR PFX "unknown opt %s\n", optarg);
+			DEBUG_ERR("unknown opt %s\n", optarg);
 			ret = -EINVAL;
 			break;
 		}
@@ -2141,25 +2168,25 @@ int krping_doit(char *cmd)
 		goto out;
 
 	if (cb->server == -1) {
-		printk(KERN_ERR PFX "must be either client or server\n");
+		DEBUG_ERR("must be either client or server\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (cb->server && cb->frtest) {
-		printk(KERN_ERR PFX "must be client to run frtest\n");
+		DEBUG_ERR("must be client to run frtest\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if ((cb->frtest + cb->bw + cb->rlat + cb->wlat) > 1) {
-		printk(KERN_ERR PFX "Pick only one test: fr, bw, rlat, wlat\n");
+		DEBUG_ERR("Pick only one test: fr, bw, rlat, wlat\n");
 		ret = -EINVAL;
 		goto out;
 	}
 
 	if (cb->wlat || cb->rlat || cb->bw) {
-		printk(KERN_ERR PFX "wlat, rlat, and bw tests only support mem_mode MR - which is no longer supported\n");
+		DEBUG_ERR("wlat, rlat, and bw tests only support mem_mode MR - which is no longer supported\n");
 		ret = -EINVAL;
 		goto out;
 	}
@@ -2167,11 +2194,10 @@ int krping_doit(char *cmd)
 	cb->cm_id = rdma_create_id(&init_net, krping_cma_event_handler, cb, RDMA_PS_TCP, IB_QPT_RC);
 	if (IS_ERR(cb->cm_id)) {
 		ret = PTR_ERR(cb->cm_id);
-		printk(KERN_ERR PFX "rdma_create_id error %d\n", ret);
+		DEBUG_ERR("rdma_create_id error %d\n", ret);
 		goto out;
 	}
 	DEBUG_LOG("created cm_id %p\n", cb->cm_id);
-	DEBUG_LOG("device nn 0x%p \t%s\n", cb->cm_id->device, cb->cm_id->device->name);
 	if (cb->server)
 		krping_run_server(cb);
 	else
@@ -2232,7 +2258,7 @@ static ssize_t krping_write_proc(struct file * file, const char __user * buffer,
 
 	cmd = kmalloc(count, GFP_KERNEL);
 	if (cmd == NULL) {
-		printk(KERN_ERR PFX "kmalloc failure\n");
+		DEBUG_ERR("kmalloc failure\n");
 		return -ENOMEM;
 	}
 	if (copy_from_user(cmd, buffer, count)) {
@@ -2270,21 +2296,12 @@ static struct file_operations krping_ops = {
 
 static int __init krping_init(void)
 {
-	struct rdma_cm_id *cm_id = NULL;
-	struct ib_device *ib_dv = NULL;
 	DEBUG_LOG("krping_init\n");
 	krping_proc = proc_create("krping", 0666, NULL, &krping_ops);
 	if (krping_proc == NULL) {
-		printk(KERN_ERR PFX "cannot create /proc/krping\n");
+		DEBUG_ERR("cannot create /proc/krping\n");
 		return -ENOMEM;
 	}
-	cm_id = rdma_create_id(&init_net, krping_cma_event_handler, NULL, RDMA_PS_TCP, IB_QPT_RC);
-	DEBUG_LOG("cm_id: 0x%p", cm_id);
-	ib_dv = cm_id->device;
-	// 找的的设备是null 可能是没有安装驱动
-	printk("ib_dv: 0x%p", ib_dv);
-	if (ib_dv) 
-		printk("name: %s", ib_dv->name);
 	return 0;
 }
 

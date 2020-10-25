@@ -12,7 +12,7 @@ server_ip=10.0.0.42
 obj-m += ${module_name}.o
 ${module_name}-y			:= getopt.o krping.o
 
-default:
+compile:
 	make -C $(KSRC) M=`pwd` modules
 
 install: remove
@@ -38,6 +38,8 @@ remove:
 		dmesg -e;\
 		echo -----Remove installed ${module_name}.----- ;\
 	fi
+
+all: compile install
 
 clear:
 	make remove
