@@ -4,23 +4,23 @@
     },
     "configurations": [
         {
-            "name": "4.15.0-88-generic",
+            "name": "4.13.0+",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/src/linux-headers-${kernelVersion}/arch/x86/include",
-                "/usr/src/linux-headers-${kernelVersion}/arch/x86/include/generated",
-                "/usr/src/linux-headers-${kernelVersion}/include",
-                "/usr/src/linux-headers-${kernelVersion}/arch/x86/include/uapi",
-                "/usr/src/linux-headers-${kernelVersion}/arch/x86/include/generated/uapi",
-                "/usr/src/linux-headers-${kernelVersion}/include/uapi",
-                "/usr/src/linux-headers-${kernelVersion}/include/generated/uapi",
-                "/usr/src/linux-headers-${kernelVersion}/ubuntu/include"
+                "/lib/modules/${kernelVersion}/build/arch/x86/include",
+                "/lib/modules/${kernelVersion}/build/arch/x86/include/generated",
+                "/lib/modules/${kernelVersion}/build/include",
+                "/lib/modules/${kernelVersion}/build/arch/x86/include/uapi",
+                "/lib/modules/${kernelVersion}/build/arch/x86/include/generated/uapi",
+                "/lib/modules/${kernelVersion}/build/include/uapi",
+                "/lib/modules/${kernelVersion}/build/include/generated/uapi"
             ],
             "defines": [
                 "__GNUC__",
                 "__KERNEL__",
                 "_GNU_SOURCE",
-                "MODULE"
+                "MODULE",
+                "CONFIG_HZ=250"
             ],
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "gnu11",
