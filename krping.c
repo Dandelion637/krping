@@ -44,6 +44,13 @@
 #include <linux/in.h>
 #include <linux/device.h>
 #include <linux/pci.h>
+
+/** 
+ * 这里添加头文件不是必须的,原版krping并没有<linux/pci-dma.h>这个头文件
+ * 但是由于在VScode中找不到DECLARE_PCI_UNMAP_ADDR宏,因此在这里加上
+ */
+#include <linux/pci-dma.h>
+
 #include <linux/time.h>
 #include <linux/random.h>
 #include <linux/sched/signal.h>
@@ -755,6 +762,14 @@ static u32 krping_rdma_rkey(struct krping_cb *cb, u64 buf, int post_inv)
 	int ret;
 	struct scatterlist sg = {0};
 
+	/** 
+	 * TODO
+	 * rdma send with invalidate 是什么
+	 */
+	/** 
+	 * reg_mr是struct ib_mr 类型,该结构体用来保存注册的内存区域信息
+	 * 包括rkey lkey 设备 保护域 长度 页大小等
+	 */
 	cb->invalidate_wr.ex.invalidate_rkey = cb->reg_mr->rkey;
 
 	/*
@@ -1410,6 +1425,9 @@ static void krping_bw_test_server(struct krping_cb *cb)
 	wait_event_interruptible(cb->sem, cb->state == ERROR);
 }
 
+/** 
+ * 检查是否支持快速注册
+ */
 static int reg_supported(struct ib_device *dev)
 {
 	u64 needed_flags = IB_DEVICE_MEM_MGT_EXTENSIONS;
@@ -1425,6 +1443,10 @@ static int reg_supported(struct ib_device *dev)
 	return 1;
 }
 
+/** 
+ * 填充sockaddr_storage 因为我们用的ipv4地址,所以这里addr_type是AF_INET
+ * 这里填充了网络类型,ip地址和端口号
+ */
 static void fill_sockaddr(struct sockaddr_storage *sin, struct krping_cb *cb)
 {
 	memset(sin, 0, sizeof(*sin));
@@ -1962,6 +1984,7 @@ static int krping_bind_client(struct krping_cb *cb)
 		return ret;
 	}
 
+	/* 这条语句执行完以后会填充cb->cm_id->device */
 	wait_event_interruptible(cb->sem, cb->state >= ROUTE_RESOLVED);
 	if (cb->state != ROUTE_RESOLVED) {
 		DEBUG_ERR(
@@ -2013,7 +2036,7 @@ static void krping_run_client(struct krping_cb *cb)
 		DEBUG_ERR("connect error %d\n", ret);
 		goto err2;
 	}
-
+	
 	if (cb->wlat)
 		krping_wlat_test_client(cb);
 	else if (cb->rlat)
